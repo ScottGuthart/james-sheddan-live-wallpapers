@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 # Download the james.sh gallery videos and prep them as iPhone
-# wallpaper clips (portrait, short, HEVC .mov, no audio).
+# wallpaper clips (portrait, short, H.264 .mp4, no audio).
 #
 # Two variants are written per video:
-#   wallpapers/crop/NAME.mov  full-bleed; cropped to portrait around the
+#   wallpapers/crop/NAME.mp4  full-bleed; cropped to portrait around the
 #                             subject (loses ~2/3 of the artwork's width)
-#   wallpapers/fit/NAME.mov   whole artwork at full width, floating on a
+#   wallpapers/fit/NAME.mp4   whole artwork at full width, floating on a
 #                             blurred, darkened copy of itself
 #
 # Requires: curl, ffmpeg, ffprobe  (macOS: brew install ffmpeg)
 # Usage:    bash make_wallpapers.sh
-# Tunables: MIN_SECS=3 W=1290 H=2796 CRF=22 bash make_wallpapers.sh
+# Tunables: MIN_SECS=3 W=1290 H=2796 CRF=20 bash make_wallpapers.sh
 set -euo pipefail
 
 MIN_SECS="${MIN_SECS:-3}"  # sources are 1.4-5.7s loops; short ones are
                            # repeated whole until at least this long
 W="${W:-1290}"             # 1290x2796 = Pro Max / Plus
 H="${H:-2796}"             # 1179x2556 = Pro / base
-CRF="${CRF:-22}"           # libx265 quality (lower = bigger/better)
+CRF="${CRF:-20}"           # libx264 quality  (lower = bigger/better)
 BASE="${BASE:-https://www.james.sh/images}"
 SRC="${SRC:-james-src}"
 OUT="${OUT:-wallpapers}"
@@ -33,20 +33,15 @@ CLIPS=(
   little-boat:0.50 cottage:0.45
 )
 
-# Hardware HEVC on macOS, software HEVC elsewhere.
-if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q hevc_videotoolbox
-then
-  VENC=(-c:v hevc_videotoolbox -q:v 60)
-else
-  VENC=(-c:v libx265 -crf "$CRF" -preset medium
-        -x265-params log-level=error)
-fi
+# H.264 High in .mp4: the format every iOS version saves to Photos.
+VENC=(-c:v libx264 -crf "$CRF" -preset slow -profile:v high
+      -color_primaries bt709 -color_trc bt709 -colorspace bt709)
 
 # encode SRC LOOPS FILTERGRAPH OUT
 encode() {
   ffmpeg -hide_banner -loglevel error -y \
     -stream_loop "$2" -i "$1" -an -filter_complex "$3" -map "[v]" \
-    "${VENC[@]}" -tag:v hvc1 -movflags +faststart "$4"
+    "${VENC[@]}" -movflags +faststart "$4"
 }
 
 mkdir -p "$SRC" "$OUT/crop" "$OUT/fit"
@@ -75,14 +70,14 @@ for clip in "${CLIPS[@]}"; do
 
   encode "$src" "$loops" \
     "[0:v]$cover,crop=$W:$H:(iw-ow)*$focus:0,$tail[v]" \
-    "$OUT/crop/$name.mov"
+    "$OUT/crop/$name.mp4"
 
   encode "$src" "$loops" \
     "[0:v]split[a][b];
      [a]$cover,crop=$W:$H,gblur=sigma=40,eq=brightness=-0.12[bg];
      [b]scale=$W:-2:flags=lanczos[fg];
      [bg][fg]overlay=0:(H-h)/2,$tail[v]" \
-    "$OUT/fit/$name.mov"
+    "$OUT/fit/$name.mp4"
 done
 
-echo "Done: $(find "$OUT" -name '*.mov' | wc -l | tr -d ' ') clips in $OUT/"
+echo "Done: $(find "$OUT" -name '*.mp4' | wc -l | tr -d ' ') clips in $OUT/"
